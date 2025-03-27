@@ -1,45 +1,87 @@
-# SEG Web Application Project
+# Vietnamese Product Review Sentiment Classification
 
 ## Overview
-This project is a web-based application that leverages Natural Language Processing (NLP) techniques to analyze and process e-commerce data from Shopee. The system uses machine learning models to provide analysis or predictions based on textual inputs.
+This project implements a web-based application for Vietnamese product review sentiment analysis, specifically focused on comments collected from the Shopee e-commerce platform. The system uses natural language processing and machine learning techniques to classify reviews as positive or negative, providing valuable insights for both businesses and consumers.
 
 ## Features
-- Web interface for interacting with the NLP models
-- Data crawling capabilities for Shopee e-commerce platform
-- Text processing and analysis using underthesea
-- Multiple trained machine learning models for different versions/approaches
+- Vietnamese text preprocessing using Underthesea package
+- Text vectorization using TF-IDF
+- Sentiment classification via Support Vector Machine (SVM)
+- Web-based user interface for real-time sentiment analysis
+- Deployed via Ngrok for accessibility
 
-## Project Structure
-- **Models**: Various trained models (`best_model.pkl`, `best_model_v2.pkl`, etc.) and their corresponding vectorizers
-- **Web Application**: Flask-based web interface in [SEG_on_web.py](SEG_on_web.py)
-- **Templates**: HTML templates for the web interface in the [templates](templates/) directory
-- **Data Crawler**: Shopee data crawler in the [shopee_crawler](shopee_crawler/) directory
+## Technologies Used
+- **Python 3.x**: Core programming language
+- **Underthesea**: Vietnamese NLP toolkit for text preprocessing
+- **Scikit-learn**: Machine learning library for TF-IDF vectorization and classification models
+- **Flask**: Web framework for the application interface
+- **Ngrok**: Tool for exposing local web server to the internet
+- **Playwright**: Browser automation library for web scraping
 
-## Setup and Installation
-1. Clone this repository.
-2. Install required dependencies:
-   ```bash
+## Installation
+
+### Prerequisites
+- Python 3.x
+- pip (Python package installer)
+
+### Setup
+1. Clone this repository
+2. Install required packages:
+   ```
    pip install -r requirements.txt
    ```
-3. Run the web application:
-   ```bash
-   python SEG_on_web.py
-   ```
+3. Download and install Ngrok if you want to expose your application to the internet
 
 ## Usage
-1. Access the web interface through your browser.
-2. Input the text you want to analyze.
-3. The system will process your input and return results based on the trained models.
+1. Run the Flask application:
+   ```
+   python SEG_on_web.py
+   ```
+2. Access the web interface at `http://localhost:5000` (or via your Ngrok URL if deployed)
+3. Enter a Vietnamese product review in the input field
+4. Click "Analyze" to get the sentiment classification result
 
-## Data Crawling (this is currently not shown due to code ownership)
-The [shopee_crawler](shopee_crawler/) module allows you to gather additional data from Shopee. See the crawler's [README.md](shopee_crawler/README.md) for detailed instructions. 
+## Project Structure
+```
+.
+├── images/                  # Team member images
+├── shopee_crawler/          # Code for crawling Shopee comments
+├── templates/
+│   └── index.html           # Web application layout
+├── best_mode_v{x}/          # Different model versions with their vectorizers
+├── SEG_on_web.py            # Main Flask application
+└── README.md                # Project documentation
+```
 
-## Configuration 
-Application settings can be modified in [config.json](config.json), including the ngrok auth token to set up an online url.
+## Data Collection & Processing
+- Automated web scraping of Shopee product reviews using Playwright
+- Data collection across multiple product categories
+- Manual review and classification of comments into positive and negative categories
+- Dataset balancing to ensure equal representation of sentiment classes
 
-## External Access
-The project includes [ngrok.yml](ngrok.yml) for exposing the local web server to the internet for testing or demonstration purposes.
+## Model Development
+- Text preprocessing: lowercasing, normalization, tokenization, stopword removal
+- Feature engineering using TF-IDF vectorization
+- Model selection through GridSearch evaluation
+- SVM achieved the best performance with 90% accuracy after dataset refinement
 
-## Team
-Our project team members are represented in the images directory.
+## Future Development
+- Topic extraction feature to identify key concerns in reviews
+- Enhanced data collection to overcome anti-bot mechanisms
+- Exploration of transformer-based models for better semantic understanding
 
+## Screenshots
+<!-- Add screenshots of your application below. Replace the placeholder text with actual images. -->
+
+### Application Interface
+[Add application interface screenshot here]
+
+### Results Visualization
+[Add results visualization screenshot here]
+
+## Team Members
+- Nguyen Van Phong (FPT University, Hue)
+- Dao Anh Khoa (FPT University, Dong Thap)
+- Huynh Anh Phuong (FPT University, An Giang)
+- Tran Trung Nhan (FPT University, Ca Mau)
+- Huynh Ngoc Nhu Quynh (FPT University, Soc Trang)
