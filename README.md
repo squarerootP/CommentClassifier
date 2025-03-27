@@ -79,13 +79,11 @@ This project implements a **web-based application** for **Vietnamese product rev
 ## 🖼️ Screenshots  
 <!-- Replace placeholder text with actual images -->  
 ### 📌 Application Interface  
-🎨 ![Primary panel for input and logging](images\dev_1.png)  
-
-### 📊 Results Visualization  
-🎨 *[Insert results screenshot here]*  
-
+| ✅ Panel for stochastic analysis | ✅ Panel for batch analysis | ✅ Plot |  
+|:-------------------:|:-------------------:|:----------------------:|  
+| ![Panel for stochastic analysis](images/dev_1.png) | ![Panel or batch analysis](images/dev_2.png) | ![Plot](images/dev_3.png) |
 ## 👤 Team Members  
-👨‍💻 **Nguyen Van Phong** – FPT University, Hue  
+👨‍💻 **Nguyen Van Phong (Leader)**  – FPT University, Hue  
 👨‍💻 **Dao Anh Khoa** – FPT University, Dong Thap  
 👨‍💻 **Huynh Anh Phuong** – FPT University, An Giang  
 👨‍💻 **Tran Trung Nhan** – FPT University, Ca Mau  
@@ -93,7 +91,7 @@ This project implements a **web-based application** for **Vietnamese product rev
 
 ---  
 
-💡 **License:** _[Specify your license here]_  
-📩 **Contact:** _[Your contact details]_  
+💡 **License:** _[not yet bibi girl]_  
+📩 **Contact:** [Contact](https://linktr.ee/squarerootp) 
 
 🔥 *If you find this project useful, give it a ⭐ on GitHub!*  
