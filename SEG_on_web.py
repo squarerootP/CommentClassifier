@@ -17,55 +17,78 @@ from io import BytesIO
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 from collections import Counter
-from wordcloud import WordCloud
+from sklearn.metrics.pairwise import cosine_similarity
 
 app = Flask(__name__, static_url_path='', static_folder='.')
 
 def preprocess_text(text):
-  """Preprocesses Vietnamese text using underthesea.
+    """Preprocesses Vietnamese text using underthesea.
 
-  Args:
-    text: The input Vietnamese text.
+    Args:
+        text: The input Vietnamese text.
 
-  Returns:
-    The preprocessed text.
-  """
+    Returns:
+        The preprocessed text.
+    """
 
-  # 1. Text Normalization:
-  text = text.lower()
-  text = text_normalize(text)  
+    # 1. Text Normalization:
+    text = text.lower()
+    text = text_normalize(text)  
 
-  # 2. Word Segmentation (Tokenization):
-  tokens = word_tokenize(text)  
+    # 2. Word Segmentation (Tokenization):
+    tokens = word_tokenize(text)  
 
-  # 3. (Optional) Remove Stopwords, punctuation, special characters:
-  # You may need to define a list of stopwords based on your needs and remove them here
-  stop_words = [
-    "tôi", "bạn", "chúng tôi", "họ", "nó", "ông", "bà", "cô", "chúng ta", "hắn", "mình",
-    "ở", "trong", "ngoài", "trên", "dưới", "với", "đến", "từ",
-    "và", "nhưng", "hoặc", "nếu", "vì", "nên", "rồi", "mà", "khi", "sau khi",
-    "rất", "cũng", "chỉ", "đã", "đang", "sẽ", "nữa", "mới", "lại", "thế",
-    "à", "ơi", "nhé", "hả", "không", "có", "phải", "vậy", "thôi", "được"
-]
-  tokens = [word for word in tokens if word not in stop_words]
+    # 3. (Optional) Remove Stopwords, punctuation, special characters:
+    # You may need to define a list of stopwords based on your needs and remove them here
+    stop_words = [
+        "tôi", "bạn", "chúng tôi", "họ", "nó", "ông", "bà", "cô", "chúng ta", "hắn", "mình",
+        "ở", "trong", "ngoài", "trên", "dưới", "với", "đến", "từ",
+        "và", "hoặc", "nếu", "vì", "nên", "rồi", "mà", "khi", "sau khi",
+        "rất", "cũng", "chỉ", "đã", "đang", "sẽ", "nữa", "mới", "lại", "thế",
+        "à", "ơi", "nhé", "hả", "có", "phải", "vậy", "thôi", "được"
+    ]
+    # stop_words = [] # Remove this line if you want to use the stop words
+    tokens = [word for word in tokens if word not in stop_words]
 
-  # 4. Join tokens back into a string:
-  preprocessed_text = " ".join(tokens) 
+    # 4. Join tokens back into a string:
+    preprocessed_text = " ".join(tokens)
+    preprocessed_text = preprocessed_text.replace("cc", "con chim")
 
-  return preprocessed_text
+    return preprocessed_text
 
-# Topic extraction function
+# Helper function to compute text similarity
+def compute_text_similarity(text1, text2):
+    """Compute Jaccard similarity between two text strings."""
+    set1 = set(text1.lower().split())
+    set2 = set(text2.lower().split())
+    
+    # Handle empty sets
+    if len(set1) == 0 or len(set2) == 0:
+        return 0.0
+    
+    # Compute Jaccard similarity: intersection over union
+    intersection = len(set1.intersection(set2))
+    union = len(set1) + len(set2) - intersection
+    
+    return intersection / union if union > 0 else 0.0
+
+# Topic extraction function - updated with similarity deduplication
 def extract_topics(comments_list, top_n=5):
-    """Extract top topics/keywords from a list of comments."""
+    """Extract top topics/keywords from a list of comments using longer n-grams with deduplication."""
     if not comments_list:
         return []
+    len_comments = len(comments_list)
+    top_n = top_n if top_n <= len_comments else len_comments
+    # Similarity threshold - adjust based on desired strictness
+    SIMILARITY_THRESHOLD = 0.6  # Topics with similarity above this are considered duplicates
         
-    # Create a TF-IDF vectorizer
+    # Create a TF-IDF vectorizer with longer n-grams (5-10 word phrases)
     topic_vectorizer = TfidfVectorizer(
         max_df=0.95,      # Ignore terms that appear in >95% of documents
-        min_df=2,         # Ignore terms that appear in fewer than 2 documents
+        min_df=1,         # Lower threshold to capture more phrases
         max_features=200, # Only consider the top 200 features
-        stop_words=stop_words
+        stop_words=stop_words,
+        ngram_range=(5, 10)  # Extract longer phrases (5-10 words) for Vietnamese
     )
     
     # Fit and transform the comments
@@ -76,54 +99,137 @@ def extract_topics(comments_list, top_n=5):
         # Sum up the TF-IDF scores for each term across all documents
         tfidf_sums = tfidf_matrix.sum(axis=0).A1
         
-        # Get the top N terms with highest TF-IDF scores
-        top_indices = tfidf_sums.argsort()[-top_n:][::-1]
-        top_terms = [(feature_names[i], tfidf_sums[i]) for i in top_indices]
+        # Get indices sorted by TF-IDF score (descending)
+        sorted_indices = tfidf_sums.argsort()[::-1]
         
-        return top_terms
-    except:
-        # Fallback to simple word frequency if TF-IDF fails
-        all_text = " ".join(comments_list)
-        words = re.findall(r'\b\w+\b', all_text.lower())
-        word_counts = Counter(words)
-        # Filter out very common words
-        for word in stop_words:
-            word_counts.pop(word, None)
-        return word_counts.most_common(top_n)
-
-# Generate word cloud image
-def generate_wordcloud(text_list, title="Word Cloud"):
-    if not text_list:
-        return None
-    
-    # Join all text
-    text = " ".join(text_list)
-    
-    # Create and generate a word cloud image
-    wordcloud = WordCloud(
-        width=800, 
-        height=400, 
-        background_color='white',
-        max_words=100,
-        contour_width=3
-    ).generate(text)
-    
-    # Create plot
-    plt.figure(figsize=(10, 6))
-    plt.imshow(wordcloud, interpolation='bilinear')
-    plt.axis("off")
-    plt.title(title)
-    plt.tight_layout(pad=0)
-    
-    # Save to a BytesIO object
-    buf = BytesIO()
-    plt.savefig(buf, format='png')
-    plt.close()
-    buf.seek(0)
-    
-    # Convert BytesIO to base64 string for HTML embedding
-    img_str = base64.b64encode(buf.getvalue()).decode('utf-8')
-    return img_str
+        # Find diverse topics using similarity threshold
+        diverse_topics = []
+        
+        # Process potential topics in order of TF-IDF score
+        for idx in sorted_indices:
+            term = feature_names[idx]
+            score = tfidf_sums[idx]
+            
+            # Skip terms with zero score
+            if score <= 0:
+                continue
+                
+            # Check if this term is too similar to already selected terms
+            is_duplicate = False
+            for existing_term, _ in diverse_topics:
+                similarity = compute_text_similarity(term, existing_term)
+                if similarity > SIMILARITY_THRESHOLD:
+                    is_duplicate = True
+                    break
+            
+            # If not a duplicate, add it to our diverse topics
+            if not is_duplicate:
+                diverse_topics.append((term, score))
+            
+            # Stop when we have enough topics
+            if len(diverse_topics) >= top_n:
+                break
+        # if len_comments < len(diverse_topics):
+        #     return diverse_topics[:len_comments]
+        return diverse_topics
+        
+    except Exception as e:
+        print(f"Error in TF-IDF extraction: {e}")
+        # Fallback to n-gram extraction with deduplication
+        try:
+            from nltk.util import ngrams
+            from nltk.tokenize import word_tokenize
+            from collections import Counter
+            
+            all_ngrams = []
+            for comment in comments_list:
+                words = word_tokenize(comment.lower())
+                # Extract 5-10 grams for longer phrases
+                for n in range(5, 11):
+                    if len(words) >= n:
+                        all_ngrams.extend([' '.join(gram) for gram in ngrams(words, n)])
+            
+            # Count ngrams
+            ngram_counts = Counter(all_ngrams)
+            
+            # Filter out ngrams with stop words
+            for word in stop_words:
+                for key in list(ngram_counts.keys()):
+                    if word in key.split():
+                        ngram_counts[key] = 0
+            
+            # Select diverse topics
+            diverse_topics = []
+            for ngram, count in ngram_counts.most_common(top_n * 3):  # Get more candidates
+                if count <= 0:
+                    continue
+                    
+                # Check if this ngram is too similar to already selected ngrams
+                is_duplicate = False
+                for existing_ngram, _ in diverse_topics:
+                    similarity = compute_text_similarity(ngram, existing_ngram)
+                    if similarity > SIMILARITY_THRESHOLD:
+                        is_duplicate = True
+                        break
+                
+                # If not a duplicate, add it
+                if not is_duplicate:
+                    diverse_topics.append((ngram, count))
+                
+                # Stop when we have enough topics
+                if len(diverse_topics) >= top_n:
+                    break
+                    
+            return diverse_topics
+            
+        except Exception as e:
+            print(f"Error in n-gram fallback: {e}")
+            # Ultimate fallback - extract phrases with deduplication
+            all_text = " ".join(comments_list)
+            words = all_text.lower().split()
+            
+            # Extract phrases
+            phrases = []
+            scores = []
+            
+            for i in range(len(words) - 5):
+                if i < len(words) - 9:
+                    phrases.append(' '.join(words[i:i+10]))  # 10-word phrases
+                    scores.append(10)  # Score based on length
+                elif i < len(words) - 4:
+                    phrases.append(' '.join(words[i:i+5]))   # 5-word phrases
+                    scores.append(5)   # Score based on length
+            
+            # Select diverse phrases
+            diverse_topics = []
+            for i, phrase in enumerate(phrases):
+                # Skip phrases with stop words
+                contains_stop_word = False
+                for word in stop_words:
+                    if word in phrase.split():
+                        contains_stop_word = True
+                        break
+                
+                if contains_stop_word:
+                    continue
+                
+                # Check similarity with existing topics
+                is_duplicate = False
+                for existing_phrase, _ in diverse_topics:
+                    similarity = compute_text_similarity(phrase, existing_phrase)
+                    if similarity > SIMILARITY_THRESHOLD:
+                        is_duplicate = True
+                        break
+                
+                # If not a duplicate, add it
+                if not is_duplicate:
+                    diverse_topics.append((phrase, scores[i]))
+                
+                # Stop when we have enough topics
+                if len(diverse_topics) >= top_n:
+                    break
+            
+            return diverse_topics
 
 # Create bar chart for top topics
 def create_topic_barchart(topics, title="Top Topics"):
@@ -154,15 +260,37 @@ def create_topic_barchart(topics, title="Top Topics"):
     img_str = base64.b64encode(buf.getvalue()).decode('utf-8')
     return img_str
 
+# Create a placeholder image for no data
+def create_no_data_image(title="No Data Available"):
+    """Generate a placeholder image when no data is available."""
+    plt.figure(figsize=(8, 4))
+    plt.text(0.5, 0.5, "No data available", 
+             horizontalalignment='center',
+             verticalalignment='center',
+             fontsize=18, color='gray')
+    plt.axis('off')
+    plt.title(title)
+    plt.tight_layout()
+    
+    # Save to BytesIO
+    buf = BytesIO()
+    plt.savefig(buf, format='png')
+    plt.close()
+    buf.seek(0)
+    
+    # Convert to base64
+    img_str = base64.b64encode(buf.getvalue()).decode('utf-8')
+    return img_str
+
 # Define stop words list globally
 stop_words = [
     "tôi", "bạn", "chúng tôi", "họ", "nó", "ông", "bà", "cô", "chúng ta", "hắn", "mình",
     "ở", "trong", "ngoài", "trên", "dưới", "với", "đến", "từ",
-    "và", "nhưng", "hoặc", "nếu", "vì", "nên", "rồi", "mà", "khi", "sau khi",
+    "và", "hoặc", "nếu", "vì", "nên", "rồi", "mà", "khi", "sau khi",
     "rất", "cũng", "chỉ", "đã", "đang", "sẽ", "nữa", "mới", "lại", "thế",
-    "à", "ơi", "nhé", "hả", "không", "có", "phải", "vậy", "thôi", "được"
+    "à", "ơi", "nhé", "hả", "có", "phải", "vậy", "thôi", "được"
 ]
-
+# stop_words = []  # Remove this line if you want to use the stop words
 # Try to load the model and vectorizer
 model_loaded = False
 try:
@@ -315,14 +443,16 @@ def batch_predict():
                 # Dummy model
                 label = model.predict(comment)
                 proba = model.predict_proba(comment)[0]
-                class_index = 0 if label == "Negative" else 1
+                class_index = 0 if label == "negative" else 1
                 confidence = round(proba[class_index] * 100, 2)
                 
             # Add to appropriate list
-            if label == "Positive":
-                positive_comments.append(comment)
+            if label == "positive":
+                positive_comments.append(processed_comment)
+            elif label == "negative":
+                negative_comments.append(processed_comment)
             else:
-                negative_comments.append(comment)
+                pass
                 
             # Add to results
             results.append({
@@ -340,12 +470,16 @@ def batch_predict():
     positive_topics = extract_topics(positive_comments)
     negative_topics = extract_topics(negative_comments)
     
-    # Generate visualizations
-    positive_wordcloud = generate_wordcloud(positive_comments, "Positive Comments Word Cloud")
-    negative_wordcloud = generate_wordcloud(negative_comments, "Negative Comments Word Cloud")
+    # Generate visualizations - handle empty comment cases
+    if positive_comments:
+        positive_barchart = create_topic_barchart(positive_topics, "Top Topics in Positive Comments")
+    else:
+        positive_barchart = create_no_data_image("No Topics for Positive Comments")
     
-    positive_barchart = create_topic_barchart(positive_topics, "Top Topics in Positive Comments")
-    negative_barchart = create_topic_barchart(negative_topics, "Top Topics in Negative Comments")
+    if negative_comments:
+        negative_barchart = create_topic_barchart(negative_topics, "Top Topics in Negative Comments")
+    else:
+        negative_barchart = create_no_data_image("No Topics for Negative Comments")
     
     return jsonify({
         'results': results,
@@ -353,791 +487,21 @@ def batch_predict():
         'negative_count': len(negative_comments),
         'positive_topics': [{'term': term, 'score': float(score)} for term, score in positive_topics],
         'negative_topics': [{'term': term, 'score': float(score)} for term, score in negative_topics],
-        'positive_wordcloud': positive_wordcloud,
-        'negative_wordcloud': negative_wordcloud,
         'positive_barchart': positive_barchart,
         'negative_barchart': negative_barchart
     })
 
 if __name__ == '__main__':
-    # Create templates directory if it doesn't exist
-    os.makedirs('templates', exist_ok=True)
-    
-    # Create images directory if it doesn't exist
-    os.makedirs('images', exist_ok=True)
-    
-    # Create index.html
-    with open('templates/index.html', 'w') as f:
-        f.write('''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Comment Classifier</title>
-    <style>
-        :root {
-            --primary-color: #4a6fa5;
-            --secondary-color: #166088;
-            --background-color: #f5f7fa;
-            --card-color: #ffffff;
-            --text-color: #333333;
-            --border-radius: 8px;
-            --box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--background-color);
-            color: var(--text-color);
-            margin: 0;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            min-height: 100vh;
-            padding: 2rem 0;
-        }
-        
-        .main-container {
-            width: 95%;
-            max-width: 1000px;
-            display: flex;
-            flex-direction: row;
-            gap: 20px;
-            margin-bottom: 2rem;
-        }
-        
-        .input-container {
-            flex: 1;
-            padding: 2rem;
-            background-color: var(--card-color);
-            border-radius: var(--border-radius);
-            box-shadow: var(--box-shadow);
-        }
-        
-        .history-container {
-            flex: 1;
-            padding: 2rem;
-            background-color: var(--card-color);
-            border-radius: var(--border-radius);
-            box-shadow: var(--box-shadow);
-            max-height: 500px;
-            display: flex;
-            flex-direction: column;
-        }
-        
-        /* Batch processing container */
-        .batch-container {
-            width: 95%;
-            max-width: 1000px;
-            margin: 2rem 0;
-            padding: 2rem;
-            background-color: var(--card-color);
-            border-radius: var(--border-radius);
-            box-shadow: var(--box-shadow);
-        }
-        
-        /* Visualization container */
-        .visualization-container {
-            width: 95%;
-            max-width: 1000px;
-            margin-bottom: 2rem;
-            padding: 2rem;
-            background-color: var(--card-color);
-            border-radius: var(--border-radius);
-            box-shadow: var(--box-shadow);
-            display: none;
-        }
-        
-        .viz-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1.5rem;
-        }
-        
-        .sentiment-counts {
-            display: flex;
-            gap: 1.5rem;
-            margin-bottom: 1.5rem;
-        }
-        
-        .count-card {
-            flex: 1;
-            padding: 1rem;
-            border-radius: var(--border-radius);
-            text-align: center;
-            font-weight: bold;
-        }
-        
-        .positive-count {
-            background-color: rgba(40, 167, 69, 0.2);
-        }
-        
-        .negative-count {
-            background-color: rgba(220, 53, 69, 0.2);
-        }
-        
-        .viz-row {
-            display: flex;
-            flex-direction: row;
-            gap: 20px;
-            margin-bottom: 2rem;
-        }
-        
-        .viz-column {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-        
-        .viz-card {
-            padding: 1rem;
-            background-color: var(--background-color);
-            border-radius: var(--border-radius);
-            box-shadow: var(--box-shadow);
-        }
-        
-        .viz-card h3 {
-            margin-top: 0;
-            color: var(--secondary-color);
-        }
-        
-        .viz-image {
-            width: 100%;
-            height: auto;
-            border-radius: var(--border-radius);
-        }
-        
-        .topic-list {
-            list-style-type: none;
-            padding: 0;
-            margin: 0;
-        }
-        
-        .topic-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 0.5rem 0;
-            border-bottom: 1px solid #eee;
-        }
-        
-        .topic-term {
-            font-weight: 600;
-        }
-        
-        .topic-score {
-            color: #666;
-        }
-        
-        /* Team members section styles */
-        .team-section {
-            width: 95%;
-            max-width: 1000px;
-            padding: 2rem;
-            background-color: var(--card-color);
-            border-radius: var(--border-radius);
-            box-shadow: var(--box-shadow);
-            margin-top: 1rem;
-        }
-        
-        /* Existing styles */
-        h1, h2 {
-            color: var(--secondary-color);
-            margin-top: 0;
-        }
-        
-        h1 {
-            font-size: 1.8rem;
-        }
-        
-        h2 {
-            font-size: 1.5rem;
-            margin-bottom: 1rem;
-        }
-        
-        .form-group {
-            margin-bottom: 1.5rem;
-        }
-        
-        label {
-            display: block;
-            margin-bottom: 0.5rem;
-            font-weight: 600;
-        }
-        
-        textarea {
-            width: 100%;
-            padding: 0.75rem;
-            border: 1px solid #ddd;
-            border-radius: var(--border-radius);
-            font-family: inherit;
-            font-size: 1rem;
-            resize: vertical;
-            min-height: 100px;
-            box-sizing: border-box;
-        }
-        
-        button {
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            padding: 0.75rem 1.5rem;
-            border-radius: var(--border-radius);
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: 600;
-            transition: background-color 0.2s;
-        }
-        
-        button:hover {
-            background-color: var(--secondary-color);
-        }
-        
-        .result {
-            margin-top: 1.5rem;
-            padding: 1rem;
-            background-color: #f0f4f8;
-            border-radius: var(--border-radius);
-            border-left: 4px solid var(--primary-color);
-        }
-        
-        .result-label {
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-        }
-        
-        .result-value {
-            font-size: 1.2rem;
-            word-break: break-word;
-        }
-        
-        .model-status {
-            margin-top: 1.5rem;
-            font-size: 0.9rem;
-            color: #666;
-        }
+    # Try to set up ngrok tunnel for external access, but make it optional
+    try:
+        public_url = ngrok.connect(5000)
+        print(f"Public URL: {public_url}")
+        print("Your app is publicly accessible at the above URL")
+    except Exception as e:
+        print(f"Ngrok Error: {str(e)}")
+        print("Continuing without ngrok. App will only be available locally at http://127.0.0.1:5000")
+        print("To access from other devices on your network, use your local IP address")
+        print("If you need public access, ensure no other ngrok sessions are running")
 
-        .prediction-log {
-            flex-grow: 1;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .log-entries {
-            flex-grow: 1;
-            overflow-y: auto;
-        }
-        
-        .log-entry {
-            padding: 0.75rem;
-            border-bottom: 1px solid #eee;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-        
-        .log-comment {
-            flex-grow: 1;
-            word-break: break-word;
-            line-height: 1.4;
-            color: var(--text-color);
-        }
-        
-        .log-result {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .log-timestamp {
-            font-size: 0.8rem;
-            color: #888;
-        }
-        
-        .log-label {
-            font-weight: 600;
-            padding: 2px 8px;
-            border-radius: 4px;
-            background: #f0f4f8;
-            margin-left: auto;
-        }
-        
-        .log-label.Positive {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .log-label.Negative {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        
-        /* Remove the neutral styling since we only have 2 classes */
-        
-        .empty-log {
-            color: #999;
-            font-style: italic;
-            text-align: center;
-            padding: 1rem;
-        }
-        
-        .spinner {
-            display: inline-block;
-            width: 24px;
-            height: 24px;
-            border: 3px solid rgba(74, 111, 165, 0.3);
-            border-radius: 50%;
-            border-top-color: var(--primary-color);
-            animation: spin 1s ease-in-out infinite;
-            margin-right: 10px;
-            vertical-align: middle;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        @media (max-width: 768px) {
-            .main-container, .viz-row {
-                flex-direction: column;
-                width: 95%;
-            }
-            
-            .input-container, .history-container, .viz-column {
-                width: 100%;
-                padding: 1.5rem;
-            }
-            
-            .history-container {
-                max-height: 300px;
-            }
-        }
-        
-        /* Existing styles */
-        /* ...existing code... */
-    </style>
-    <!-- Add Font Awesome for user icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
-</head>
-<body>
-    <div class="main-container">
-        <div class="input-container">
-            <h1>Comment Classifier</h1>
-            
-            <div class="form-group">
-                <label for="comment">Enter your comment:</label>
-                <textarea id="comment" placeholder="Type your comment here..."></textarea>
-            </div>
-            
-            <button id="submit-btn">Classify</button>
-            
-            <div class="result" id="result" style="display: none;">
-                <div class="result-label">Classification:</div>
-                <div class="result-value" id="result-value">-</div>
-                <div class="confidence-container">
-                    <div class="confidence-label">Confidence:</div>
-                    <div class="confidence-value" id="confidence-value">-</div>
-                    <div class="confidence-bar-container">
-                        <div class="confidence-bar" id="confidence-bar"></div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="model-status">
-                {% if model_status %}
-                    Model loaded successfully from best_model.pkl
-                {% else %}
-                    Using demo model (best_model.pkl not found)
-                {% endif %}
-            </div>
-        </div>
-        
-        <div class="history-container">
-            <h2>Prediction History</h2>
-            <div class="prediction-log">
-                <div class="log-entries" id="log-entries">
-                    <div class="empty-log">No predictions yet</div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- New Batch Processing Container -->
-    <div class="batch-container">
-        <h2>Batch Comment Analysis</h2>
-        <p>Enter multiple comments separated by "&&&&" for batch processing:</p>
-        
-        <div class="form-group">
-            <textarea id="batch-comments" rows="6" placeholder="Comment 1 &&&& Comment 2 &&&& Comment 3..."></textarea>
-        </div>
-        
-        <button id="batch-submit-btn">Process Batch</button>
-        <div id="batch-loading" style="display: none; margin-top: 1rem;">
-            <div class="spinner"></div> Processing comments...
-        </div>
-    </div>
-    
-    <!-- Visualization Container (initially hidden) -->
-    <div class="visualization-container" id="viz-container">
-        <div class="viz-header">
-            <h2>Batch Analysis Results</h2>
-            <div class="tabs">
-                <div class="tab active" data-tab="overview">Overview</div>
-                <div class="tab" data-tab="wordclouds">Word Clouds</div>
-                <div class="tab" data-tab="topics">Topic Charts</div>
-            </div>
-        </div>
-        
-        <!-- Overview Tab -->
-        <div class="tab-content active" id="overview-tab">
-            <div class="sentiment-counts">
-                <div class="count-card positive-count">
-                    <div>Positive Comments</div>
-                    <div id="positive-count">0</div>
-                </div>
-                <div class="count-card negative-count">
-                    <div>Negative Comments</div>
-                    <div id="negative-count">0</div>
-                </div>
-            </div>
-            
-            <div class="viz-row">
-                <div class="viz-column">
-                    <div class="viz-card">
-                        <h3>Top Topics in Positive Comments</h3>
-                        <ul class="topic-list" id="positive-topics">
-                            <li class="empty-list">No data available</li>
-                        </ul>
-                    </div>
-                </div>
-                <div class="viz-column">
-                    <div class="viz-card">
-                        <h3>Top Topics in Negative Comments</h3>
-                        <ul class="topic-list" id="negative-topics">
-                            <li class="empty-list">No data available</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Word Clouds Tab -->
-        <div class="tab-content" id="wordclouds-tab">
-            <div class="viz-row">
-                <div class="viz-column">
-                    <div class="viz-card">
-                        <h3>Positive Comments Word Cloud</h3>
-                        <div class="viz-image-container">
-                            <img id="positive-wordcloud" class="viz-image" src="" alt="Positive Word Cloud">
-                        </div>
-                    </div>
-                </div>
-                <div class="viz-column">
-                    <div class="viz-card">
-                        <h3>Negative Comments Word Cloud</h3>
-                        <div class="viz-image-container">
-                            <img id="negative-wordcloud" class="viz-image" src="" alt="Negative Word Cloud">
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Topic Charts Tab -->
-        <div class="tab-content" id="topics-tab">
-            <div class="viz-row">
-                <div class="viz-column">
-                    <div class="viz-card">
-                        <h3>Top Topics in Positive Comments</h3>
-                        <div class="viz-image-container">
-                            <img id="positive-barchart" class="viz-image" src="" alt="Positive Topics Chart">
-                        </div>
-                    </div>
-                </div>
-                <div class="viz-column">
-                    <div class="viz-card">
-                        <h3>Top Topics in Negative Comments</h3>
-                        <div class="viz-image-container">
-                            <img id="negative-barchart" class="viz-image" src="" alt="Negative Topics Chart">
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Team Members Section -->
-    <div class="team-section">
-        <h2>Our Team</h2>
-        <div class="team-members">
-            <div class="team-member">
-                <div class="member-image">
-                    <img src="/images/team1.jpg" alt="Nguyen Van Phong">
-                </div>
-                <div class="member-name">Nguyen Van Phong</div>
-                <div class="member-title">Model Training</div>
-            </div>
-            
-            <div class="team-member">
-                <div class="member-image">
-                    <img src="/images/team2.jpg" alt="Tran Trung Nhan">
-                </div>
-                <div class="member-name">Tran Trung Nhan</div>
-                <div class="member-title">Data Collection and Labeling</div>
-            </div>
-            
-            <div class="team-member">
-                <div class="member-image">
-                    <img src="/images/team3.jpg" alt="Huynh Ngoc Nhu Quynh">
-                </div>
-                <div class="member-name">Huynh Ngoc Nhu Quynh</div>
-                <div class="member-title">Data Collection and Labeling</div>
-            </div>
-            
-            <div class="team-member">
-                <div class="member-image">
-                    <img src="/images/team4.jpg" alt="Huynh Anh Phuong">
-                </div>
-                <div class="member-name">Huynh Anh Phuong</div>
-                <div class="member-title">Data Collection and Labeling</div>
-            </div>
-            
-            <div class="team-member">
-                <div class="member-image">
-                    <img src="/images/team5.jpg" alt="Dao Anh Khoa">
-                </div>
-                <div class="member-name">Dao Anh Khoa</div>
-                <div class="member-title">Data Collection and Labeling</div>
-            </div>
-        </div>
-    </div>
-
-<script>
-        // Store prediction history
-        const predictionLog = [];
-        
-        document.addEventListener('DOMContentLoaded', () => {
-            // Set up tab functionality
-            const tabs = document.querySelectorAll('.tab');
-            tabs.forEach(tab => {
-                tab.addEventListener('click', () => {
-                    // Remove active class from all tabs and contents
-                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                    
-                    // Add active class to clicked tab
-                    tab.classList.add('active');
-                    
-                    // Show corresponding content
-                    const tabId = tab.getAttribute('data-tab');
-                    document.getElementById(`${tabId}-tab`).classList.add('active');
-                });
-            });
-        });
-
-        document.getElementById('submit-btn').addEventListener('click', async () => {
-            const comment = document.getElementById('comment').value.trim();
-            const resultDiv = document.getElementById('result');
-            const resultValue = document.getElementById('result-value');
-            const confidenceValue = document.getElementById('confidence-value');
-            const confidenceBar = document.getElementById('confidence-bar');
-            
-            if (!comment) {
-                resultValue.textContent = 'Please enter a comment';
-                confidenceValue.textContent = '-';
-                confidenceBar.style.width = '0%';
-                resultDiv.style.display = 'block';
-                return;
-            }
-            
-            // Show loading indicator
-            resultValue.innerHTML = '<div class="spinner"></div> Analyzing...';
-            confidenceValue.textContent = '-';
-            confidenceBar.style.width = '0%';
-            resultDiv.style.display = 'block';
-            
-            try {
-                // Start both the API request and a timer
-                const [response] = await Promise.all([
-                    fetch('/predict', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ comment }),
-                    }),
-                    new Promise(resolve => setTimeout(resolve, 500)) // Minimum 500ms delay
-                ]);
-                
-                const data = await response.json();
-                resultValue.textContent = data.label;
-                
-                // Display confidence if available
-                if (data.confidence !== undefined && data.confidence !== 'N/A') {
-                    confidenceValue.textContent = `${data.confidence}%`;
-                    confidenceBar.style.width = `${data.confidence}%`;
-                } else if (data.confidence === 'N/A') {
-                    confidenceValue.textContent = 'Not available';
-                    confidenceBar.style.width = '0%';
-                } else {
-                    confidenceValue.textContent = '-';
-                    confidenceBar.style.width = '0%';
-                }
-                
-                // Add to prediction log
-                addToPredictionLog(comment, data.label, data.confidence);
-                
-            } catch (error) {
-                resultValue.textContent = `Error: ${error.message}`;
-                confidenceValue.textContent = '-';
-                confidenceBar.style.width = '0%';
-            }
-        });
-        
-        function addToPredictionLog(comment, label, confidence) {
-            // Store in memory
-            const timestamp = new Date();
-            predictionLog.unshift({ comment, label, confidence, timestamp });
-            
-            // Limit log size
-            if (predictionLog.length > 50) {
-                predictionLog.pop();
-            }
-            
-            // Update UI
-            const logEntries = document.getElementById('log-entries');
-            const emptyLog = logEntries.querySelector('.empty-log');
-            if (emptyLog) {
-                emptyLog.remove();
-            }
-            
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-            
-            // Format timestamp
-            const timeString = timestamp.toLocaleTimeString();
-            
-            // Include confidence if available
-            const confidenceDisplay = confidence !== undefined && confidence !== 'N/A' 
-                ? ` (${confidence}%)` 
-                : '';
-            
-            entry.innerHTML = `
-                <div class="log-comment">${comment}</div>
-                <div class="log-result">
-                    <span class="log-timestamp">${timeString}</span>
-                    <span class="log-label ${label}">${label}${confidenceDisplay}</span>
-                </div>
-            `;
-            
-            // Add to the top of the log
-            logEntries.insertBefore(entry, logEntries.firstChild);
-        }
-        
-        // Batch processing functionality
-        document.getElementById('batch-submit-btn').addEventListener('click', async () => {
-            const batchText = document.getElementById('batch-comments').value.trim();
-            const loadingElement = document.getElementById('batch-loading');
-            const vizContainer = document.getElementById('viz-container');
-            
-            if (!batchText) {
-                alert('Please enter comments for batch processing');
-                return;
-            }
-            
-            // Show loading indicator
-            loadingElement.style.display = 'block';
-            
-            try {
-                const response = await fetch('/batch_predict', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ batch_text: batchText }),
-                });
-                
-                const data = await response.json();
-                
-                if (data.error) {
-                    alert(data.error);
-                    loadingElement.style.display = 'none';
-                    return;
-                }
-                
-                // Update UI with results
-                document.getElementById('positive-count').textContent = data.positive_count;
-                document.getElementById('negative-count').textContent = data.negative_count;
-                
-                // Update topics lists
-                updateTopicsList('positive-topics', data.positive_topics);
-                updateTopicsList('negative-topics', data.negative_topics);
-                
-                // Update images
-                if (data.positive_wordcloud) {
-                    document.getElementById('positive-wordcloud').src = `data:image/png;base64,${data.positive_wordcloud}`;
-                }
-                if (data.negative_wordcloud) {
-                    document.getElementById('negative-wordcloud').src = `data:image/png;base64,${data.negative_wordcloud}`;
-                }
-                if (data.positive_barchart) {
-                    document.getElementById('positive-barchart').src = `data:image/png;base64,${data.positive_barchart}`;
-                }
-                if (data.negative_barchart) {
-                    document.getElementById('negative-barchart').src = `data:image/png;base64,${data.negative_barchart}`;
-                }
-                
-                // Show visualization container
-                vizContainer.style.display = 'block';
-                
-                // Hide loading indicator
-                loadingElement.style.display = 'none';
-                
-                // Scroll to visualization results
-                vizContainer.scrollIntoView({ behavior: 'smooth' });
-                
-            } catch (error) {
-                console.error('Error processing batch:', error);
-                alert('Error processing batch: ' + error.message);
-                loadingElement.style.display = 'none';
-            }
-        });
-        
-        function updateTopicsList(elementId, topics) {
-            const topicsList = document.getElementById(elementId);
-            
-            // Clear existing content
-            topicsList.innerHTML = '';
-            
-            // If no topics, show empty message
-            if (!topics || topics.length === 0) {
-                topicsList.innerHTML = '<li class="empty-list">No data available</li>';
-                return;
-            }
-            
-            // Add each topic to the list
-            topics.forEach(topic => {
-                const topicItem = document.createElement('li');
-                topicItem.className = 'topic-item';
-                topicItem.innerHTML = `
-                    <span class="topic-term">${topic.term}</span>
-                    <span class="topic-score">${topic.score.toFixed(4)}</span>
-                `;
-                topicsList.appendChild(topicItem);
-            });
-        }
-    </script>
-</body>
-</html>
-        ''')
-
-    # Set up ngrok tunnel for external access
-    public_url = ngrok.connect(5000)
-    print(f"Public URL: {public_url}")
-
-    # Run the Flask app
-    app.run(debug=True)
+    # Run the Flask app - adding host parameter to make it accessible on the local network
+    app.run(debug=False, host='0.0.0.0')
