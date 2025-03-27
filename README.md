@@ -54,7 +54,8 @@ This project implements a **web-based application** for **Vietnamese product rev
 ├── shopee_crawler/          # Shopee comment scraping scripts
 ├── templates/
 │   └── index.html           # Web application layout
-├── best_mode_v{x}/          # Different model versions with their vectorizers
+├── best_mode_v{x}.pkl          # Different model versions with their vectorizers
+├── vectorizer_v{x}.pkl         # Corresponding vectorizer
 ├── SEG_on_web.py            # Main Flask application
 └── README.md                # Project documentation
 ```
