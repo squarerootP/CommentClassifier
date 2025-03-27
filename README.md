@@ -79,7 +79,7 @@ This project implements a **web-based application** for **Vietnamese product rev
 ## 🖼️ Screenshots  
 <!-- Replace placeholder text with actual images -->  
 ### 📌 Application Interface  
-🎨 *[Insert application UI screenshot here]*  
+🎨 ![Primary panel for input and logging](images\dev_1.png)  
 
 ### 📊 Results Visualization  
 🎨 *[Insert results screenshot here]*  
